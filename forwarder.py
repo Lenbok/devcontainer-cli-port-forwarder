@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -56,10 +57,15 @@ async def forward_data(source, target):
 
 async def handle_client(reader, writer, args):
     # Setting up the subprocess to run the command
-    (container_id, remote_user, port) = args
+    (container_id, remote_user, port, use_su) = args
 
     # Now the container is running, proceed with docker exec
     try:
+        if use_su:
+            socat_command = f"su - {remote_user} -c 'socat - TCP:localhost:{port}'"
+        else:
+            socat_command = f"socat - TCP:localhost:{port}"
+
         command = [
             "docker",
             "exec",
@@ -67,7 +73,7 @@ async def handle_client(reader, writer, args):
             container_id,
             "bash",
             "-c",
-            f"su - {remote_user} -c 'socat - TCP:localhost:{port}'",
+            socat_command,
         ]
         proc = await asyncio.create_subprocess_exec(
             *command,
@@ -119,10 +125,10 @@ async def handle_client(reader, writer, args):
     verbose_print(f"Termiate process in {container_id} '{command[-1]}'")
 
 
-async def start_server(container_id: str, remote_user: str, port):
+async def start_server(container_id: str, remote_user: str, port, use_su: bool):
     host = "0.0.0.0"
     server = await asyncio.start_server(
-        lambda r, w: handle_client(r, w, (container_id, remote_user, port)),
+        lambda r, w: handle_client(r, w, (container_id, remote_user, port, use_su)),
         host,
         port,
     )
@@ -138,9 +144,9 @@ async def start_server(container_id: str, remote_user: str, port):
         verbose_print(f"Stop listening {host}:{port}, exited graceflly", display=True)
 
 
-async def start_all(container_id, remote_user, forward_ports):
+async def start_all(container_id, remote_user, forward_ports, use_su: bool):
     server_tasks = [
-        start_server(container_id, remote_user, port) for port in forward_ports
+        start_server(container_id, remote_user, port, use_su) for port in forward_ports
     ]
     # Start container monitoring task
     monitor_task = asyncio.create_task(monitor_container(container_id))
@@ -265,7 +271,7 @@ def get_remote_user(devcontainer_json, container_id):
     return remoteUser
 
 
-def main():
+def main(use_su: bool = False):
     # parse json with comments
     # ideally use commentjson or pyjosn5
     # but this will introduce dependency
@@ -287,15 +293,32 @@ def main():
         # determine the user to run the socat command
         remote_user = get_remote_user(devcontainer_json, container_id)
 
-        asyncio.run(start_all(container_id, remote_user, forward_ports))
+        asyncio.run(start_all(container_id, remote_user, forward_ports, use_su))
     else:
         verbose_print("No forwardPorts found", display=True)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and (sys.argv[1].lower() == "verbose"):
+    parser = argparse.ArgumentParser(
+        description="DevContainer CLI Port Forwarder - Forward ports from host to devcontainer"
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging to /tmp/devcontainer-cli-port-forwarder.log"
+    )
+    parser.add_argument(
+        "--use-su",
+        action="store_true",
+        help="Use 'su - user -c socat' instead of direct socat command"
+    )
+
+    args = parser.parse_args()
+
+    if args.verbose:
         VERBOSE = True
+
     try:
-        main()
+        main(args.use_su)
     except Exception as e:
         verbose_print(f"An error occurred: {e}")
