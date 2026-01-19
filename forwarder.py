@@ -157,8 +157,6 @@ def get_container_id(workspace):
         "--filter",
         f"label=devcontainer.local_folder={workspace}",
         "--filter",
-        f"label=devcontainer.config_file={workspace}/.devcontainer/devcontainer.json",
-        "--filter",
         "status=running",
     ]
     result = subprocess.run(command, capture_output=True, text=True)
