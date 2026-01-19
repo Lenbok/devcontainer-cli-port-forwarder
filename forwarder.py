@@ -16,7 +16,7 @@ STOP_RUNNING = False
 
 def verbose_print(message, display=False):
     if VERBOSE or display:
-        with open("/tmp/devcontainer-cli-port-forwarder.log", "w+") as f:
+        with open("/tmp/devcontainer-cli-port-forwarder.log", "a+") as f:
             f.write(f"[*] forwarder -- {message}\n")
 
 
@@ -163,21 +163,27 @@ def get_container_id(workspace):
     ]
     result = subprocess.run(command, capture_output=True, text=True)
 
+    verbose_print(f"result {result}")
     start_time = time.time()
     if not result.stdout.strip():
         verbose_print(" ".join(command))
 
         while result.returncode != 0 or not result.stdout.strip():
+            verbose_print("waiting... ")
             time.sleep(1)  # Wait and check again in 1 second
+            verbose_print("woke... ")
             if time.time() - start_time > MAX_WAIT_TIME:
                 verbose_print(
                     f"Exited: Container did not start within {MAX_WAIT_TIME} seconds."
                 )
-                exit(1)
+                raise Exception(f"Exited: Container did not start within {MAX_WAIT_TIME} seconds.")
             else:
+                verbose_print("rerunning... ")
                 result = subprocess.run(command, capture_output=True, text=True)
-
-        return result.stdout.strip()
+                verbose_print("returned... ")
+        container_id = result.stdout.strip()
+        verbose_print(f"Got container id {container_id}")
+        return container_id
     else:
         # return result.stdout.strip()
 
@@ -203,7 +209,9 @@ def get_container_id(workspace):
                 exit(1)
             else:
                 result = subprocess.run(command, capture_output=True, text=True)
-        return result.stdout.strip()
+        container_id = result.stdout.strip()
+        verbose_print(f"Got container id {container_id}")
+        return container_id
 
 
 def wait_for_contaier_running(container_id):
@@ -274,7 +282,9 @@ def main():
     forward_ports = devcontainer_json.get("forwardPorts", [])
     if forward_ports:
         workspace = os.path.realpath(os.getcwd())
+        verbose_print(f"Forward_ports is {forward_ports}")
         container_id = get_container_id(workspace)
+        verbose_print(f"Have now got container id {container_id}")
         # wait_for_contaier_running(container_id)
         # determine the user to run the socat command
         remote_user = get_remote_user(devcontainer_json, container_id)
@@ -287,5 +297,7 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and (sys.argv[1].lower() == "verbose"):
         VERBOSE = True
-
-    main()
+    try:
+        main()
+    except Exception as e:
+        verbose_print(f"An error occurred: {e}")
